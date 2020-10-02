@@ -1,0 +1,166 @@
+
+
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+LCDDisplayDriver	KEYWORD1
+
+
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+showNum	KEYWORD2
+showNum2Left	KEYWORD2
+showNum2Center	KEYWORD2
+showNum2Right	KEYWORD2
+showNum4Left	KEYWORD2
+showNum4Right	KEYWORD2
+showNum4LeftLZ	KEYWORD2
+showNum4RightLZ	KEYWORD2
+showNum1decimal	KEYWORD2
+showNum2decimals	KEYWORD2
+showNum3decimals	KEYWORD2
+
+showHex	KEYWORD2
+showHex2Left	KEYWORD2
+showHex2Center	KEYWORD2
+showHex2Right	KEYWORD2
+showHex2LeftLZ	KEYWORD2
+showHex2CenterLZ	KEYWORD2
+showHex2RightLZ	KEYWORD2
+showHex4Left	KEYWORD2
+showHex4Right	KEYWORD2
+
+showText	KEYWORD2
+showChar	KEYWORD2
+
+showDigit	KEYWORD2
+showDigits	KEYWORD2
+
+showNumWithPoint	KEYWORD2
+showNumWithPrefix	KEYWORD2
+setBrightness	KEYWORD2
+getBrightness	KEYWORD2
+setOn	KEYWORD2
+setDp	KEYWORD2
+removeDp	KEYWORD2
+update	KEYWORD2
+setAutoUpdate	KEYWORD2
+clear	KEYWORD2
+showMinus	KEYWORD2
+showTest	KEYWORD2
+
+showIndicators	KEYWORD2
+addIndicators	KEYWORD2
+subIndicators	KEYWORD2
+getIndicators	KEYWORD2
+
+readKeyIndex	KEYWORD2
+readKeyIndexOnce	KEYWORD2
+readKeys	KEYWORD2
+
+
+######################################
+# Constants (LITERAL1)
+#######################################
+
+MAX_DIGITS	LITERAL1
+
+digitSpace	LITERAL1
+digitQuote2	LITERAL1
+digitQuote1	LITERAL1
+digitOpen	LITERAL1
+digitClose	LITERAL1
+digitAsterix	LITERAL1
+digitPlus	LITERAL1
+digitDp	LITERAL1
+digitMinus	LITERAL1
+digitSlash	LITERAL1
+
+digitLT	LITERAL1
+digitEqual	LITERAL1
+digitGT	LITERAL1
+
+digitBackslash	LITERAL1
+digitVerticalslash	LITERAL1
+digitUnderscore	LITERAL1
+
+
+digit0	LITERAL1
+digit1	LITERAL1
+digit2	LITERAL1
+digit3	LITERAL1
+digit4	LITERAL1
+digit5	LITERAL1
+digit6	LITERAL1
+digit7	LITERAL1
+digit8	LITERAL1
+digit9	LITERAL1
+
+digitA	LITERAL1
+digitB	LITERAL1
+digitC	LITERAL1
+digitD	LITERAL1
+digitE	LITERAL1
+digitF	LITERAL1
+digitG	LITERAL1
+digitH	LITERAL1
+digitI	LITERAL1
+digitJ	LITERAL1
+digitK	LITERAL1
+digitL	LITERAL1
+digitM	LITERAL1
+digitN	LITERAL1
+digitO	LITERAL1
+digitP	LITERAL1
+digitQ	LITERAL1
+digitR	LITERAL1
+digitS	LITERAL1
+digitT	LITERAL1
+digitU	LITERAL1
+digitV	LITERAL1
+digitW	LITERAL1
+digitX	LITERAL1
+digitY	LITERAL1
+digitZ	LITERAL1
+
+digita	LITERAL1
+digitb	LITERAL1
+digitc	LITERAL1
+digitd	LITERAL1
+digite	LITERAL1
+digitf	LITERAL1
+digitg	LITERAL1
+digith	LITERAL1
+digiti	LITERAL1
+digitj	LITERAL1
+digitk	LITERAL1
+digitl	LITERAL1
+digitm	LITERAL1
+digitn	LITERAL1
+digito	LITERAL1
+digitp	LITERAL1
+digitq	LITERAL1
+digitr	LITERAL1
+digits	LITERAL1
+digitt	LITERAL1
+digitu	LITERAL1
+digitv	LITERAL1
+digitw	LITERAL1
+digitx	LITERAL1
+digity	LITERAL1
+digitz	LITERAL1
+
+digitEmpty	LITERAL1
+digitTop	LITERAL1
+digitBottom	LITERAL1
+digitRight	LITERAL1
+digitLeft	LITERAL1
+digitDeg	LITERAL1
+digitAll	LITERAL1
+
+segmentPatterns	LITERAL1
