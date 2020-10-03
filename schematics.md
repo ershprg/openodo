@@ -7,12 +7,12 @@
 Arduino D12 -> LCD WR 
 Arduino D13 -> LCD CS
 Arduino D7 -> LCD Data
-Arduino D3 -> ICO
-Arduino D2 -> ICO
+Arduino A0 -> ICO
+Arduino A1 -> ICO
 Arduino RX0 -> GPS TX
 Arduino TX1 -> GPS RX
 Arduino +5V -> LCD Vcc
 Arduino +5V -> GPS VCC
 Arduino GND -> LCD Gnd
 Arduino GND -> GPS Gnd
-
+Arduino GND -> ICO Gnd
