@@ -1,10 +1,13 @@
+//GPIO Library
+#include <FastGPIO.h>
+
 //Display library
 #include <LEDDisplayDriver.h>
 #ifndef _HT1621_6D_
 #error "_HT1621_6D_ must be defined in LEDDisplayDriver.h for this sketch to work"
 #endif
 
-
+//GPS Library
 #include <NMEAGPS.h>
 
 //======================================================================
@@ -107,8 +110,8 @@ const unsigned char ubxRate10Hz[] PROGMEM =
 // Define the pins used for the display connection
 //Pin for internal LED
 const int ledPin = 13;
-const int bt1Pin = 2;//D2
-const int bt2Pin = 3;//D3
+const int bt1Pin = A0;//D2
+const int bt2Pin = A1;//D3
 //Minimal Speed to detect
 const int c_vMin = 3*1000; //Meters per hour
 //Odometer limit in KM
@@ -124,6 +127,7 @@ volatile bool pin1 = false;
 volatile bool pin2 = false;
 volatile long lastDebounceTime = 0;
 long debounceDelay = 1500;
+
 
 //GPS Data after reading
 uint32_t speed = 0;
@@ -184,15 +188,15 @@ void sendUBX( const unsigned char *progmemBytes, size_t len )
 static void initDisplay()
 {
   display.showTest();
+  display.update();
   delay(500);
   display.clear();
-//  display.showDigits(greeting, 0, 5);
-//  delay(500);
 }
 
 static void greetDisplay()
 {
   display.showDigits(greeting, 0, 5);
+  display.update();
   delay(500);
   display.clear();
 }
@@ -238,7 +242,7 @@ static void processOdometer()
 }
 
 //-----------
-// Buttons processing
+// Buttons processing SHOULD be done with an interrupt - however the debounce with ICO controller is terrible: button1 is 4.75v and button2 is 0.85v that triggers them BOTH. Need a resistor.
 //-----------
 /*
 void key1Interrupt() {
@@ -266,11 +270,12 @@ static void GPSisr( uint8_t c )
 static void readButtons()
 {
   //Reading the Buttons
-  int z = digitalRead(A0);
-  if (z == 0)
+  
+  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
+  if (z == false)
     pin1 = true;
-  z = digitalRead(A1);
-  if (z == 0)
+  z = FastGPIO::Pin<bt2Pin>::isInputHigh();
+  if (z == false)
     pin2 = true;
 }
 
@@ -278,7 +283,7 @@ static void processButtons()
 {
     if ((pin1 == true)&&(pin2 == true)) {
       display_mode++;
-      if (display_mode > 5)
+      if (display_mode > 3)
         display_mode = 0;
       pin1 = false;
       pin2 = false;
@@ -286,11 +291,11 @@ static void processButtons()
     }
     if (pin1 == true) {
       pin1 = false;
-      dist_l += 3600 * 100 * c_odoGrade ;
+      dist_l -= 3600 * c_odoGrade ;
     }
     if (pin2 == true) {
       pin2 = false;
-      dist_l -= 3600 * 100 * c_odoGrade ;
+      dist_l += 3600 * c_odoGrade ;
     }
 }
 
@@ -305,10 +310,6 @@ static void processButtons()
 
 static void getGPSData()
 {
-  // Print all the things!
-
-  //trace_all( DEBUG_PORT, gps, fix );
-
   //Can have "1-3 sats" but no location/no fix
   if (fix.valid.location)
     ready_to_go = true;
@@ -350,8 +351,7 @@ static void displayData()
     sprintf(display_buf,"H %3d",i_hdg);
   if (display_mode == 3)
     sprintf(display_buf,"G  %02d",i_sats);
-  if (display_mode > 3)
-    sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);
+
   if (i_sats == -1)
     indic = indic | 0;
   else if (ready_to_go == true)
@@ -369,52 +369,52 @@ static void displayData()
   //ToDo: display depending on the Mode (HDG, SPD, ODO, DBG)
   display.showText(display_buf);
   display.update();
-
+/*
   DEBUG_PORT.print(F("P1 "));
   DEBUG_PORT.print(pin1);
   DEBUG_PORT.print(F(" P2 "));
   DEBUG_PORT.print(pin2);
   DEBUG_PORT.print(F(" LAST "));
-  DEBUG_PORT.print(lastDebounceTime);
+  DEBUG_PORT.print(lastDebounceTime);*/
   DEBUG_PORT.print( F("Speed (Km/H): ") );
   DEBUG_PORT.print( i_speed );
   DEBUG_PORT.print( F(" valid: ") );
   DEBUG_PORT.print( fix.valid.speed );
-  DEBUG_PORT.print( F("  Heading (Deg): ") );
+  DEBUG_PORT.print( F(" Heading (Deg): ") );
   DEBUG_PORT.print( i_hdg );
   DEBUG_PORT.print( F(" valid: ") );
   DEBUG_PORT.print( fix.valid.heading );
-  DEBUG_PORT.print( F("  Odo High: ") );
+  DEBUG_PORT.print( F(" Odo High: ") );
   DEBUG_PORT.print( dist_h );
   DEBUG_PORT.print( F(".") );
   DEBUG_PORT.print( dist_l );
-  DEBUG_PORT.print( F("  Display: ") );
+  DEBUG_PORT.print( F(" Display: ") );
   DEBUG_PORT.print( display_buf );  
   //DEBUG_PORT.print( F(".") );
   //DEBUG_PORT.print( i_dist_l );
-  DEBUG_PORT.print( F("  Sats: ") );
+  DEBUG_PORT.print( F(" Sats: ") );
   DEBUG_PORT.print( i_sats );
   DEBUG_PORT.print( F(" valid: ") );
   DEBUG_PORT.print( fix.valid.satellites );
 
-  DEBUG_PORT.print( F(" display: ") );
-  DEBUG_PORT.print( display_mode );
+  //DEBUG_PORT.print( F(" display: ") );
+  //DEBUG_PORT.print( display_mode );
   DEBUG_PORT.print( F(" Ready: ") );
   DEBUG_PORT.println(ready_to_go);
 
   //Visual Debug //WTF????
   if (ready_to_go == false) 
-    digitalWrite(ledPin, HIGH);
+    FastGPIO::Pin<ledPin>::setOutputValueHigh();
   else
-    digitalWrite(ledPin, LOW);
+    FastGPIO::Pin<ledPin>::setOutputValueLow();
 }
 //------------------------------------
 //  This is the main GPS parsing loop.
 
 static void GPSloop()
 {
+  readButtons();
   while (gps.available( gpsPort )) {
-    readButtons();
     fix = gps.read();
     getGPSData();
     processData();
@@ -424,8 +424,6 @@ static void GPSloop()
     gps.overrun( false );
     DEBUG_PORT.println( F("DATA OVERRUN: took too long to print GPS data!") );
   }
-
-    readButtons();
     processButtons();
     displayData();
 
@@ -493,21 +491,21 @@ void setup()
   gpsPort.begin( 57600 );
   
   DEBUG_PORT.print( F("Switched to 57600\n") );       
-  //Init Button Pins
-  //pinMode(bt1Pin, INPUT_PULLUP); 
-  //pinMode(bt2Pin, INPUT_PULLUP); 
 
-  pinMode(A0, INPUT_PULLUP); 
-  pinMode(A1, INPUT_PULLUP); 
+  greetDisplay();
+
+   //Init Button Pins
+  FastGPIO::Pin<bt1Pin>::setInputPulledUp();
+  FastGPIO::Pin<bt2Pin>::setInputPulledUp();
 
   //attachInterrupt(digitalPinToInterrupt(bt1Pin), key1Interrupt, FALLING);
   //attachInterrupt(digitalPinToInterrupt(bt2Pin), key2Interrupt, FALLING);
   
-  display.clear();
-  greetDisplay();
   //No Fix -> Blink LED fast
   while (gps.available( gpsPort ) == false) {//Still show something while waiting
-    greetDisplay();
+    readButtons();
+    processButtons();
+    displayData();
   }
 
   //First Fix
@@ -518,6 +516,5 @@ void setup()
 
 void loop()
 {
-  greetDisplay();
   GPSloop();
 }
