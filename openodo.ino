@@ -113,14 +113,19 @@ const int ledPin = 13;
 const int bt1Pin = A0;//D2
 const int bt2Pin = A1;//D3
 //Minimal Speed to detect
-const int c_vMin = 3*1000; //Meters per hour
-//Odometer limit in KM
-const int c_odoLimit = 10000; //100.00
+const int16_t c_vMin = 3*1000; //Meters per hour
+//Odometer limit 
+const int16_t c_odoLimit = 1000*10; //100.00
 //Odometer Grade 10 or 100 meters
-const int c_odoGrade = 10;
+const int8_t c_odoGrade = 10;
 //We read the Odometer at 1Hz
-const int c_odoHz = 1;
+const int8_t c_odoHz = 1;
 //==========================================================
+//Convert meters per hour every 1 second to km/meters with required precision
+const uint32_t c_dist_divider = (3600UL * c_odoGrade * c_odoHz);
+
+//Maximum reachable odometer is 100km
+const uint32_t c_odoMax = (3600UL*1000*100*c_odoHz);
 
 //Pin Data
 volatile bool pin1 = false;
@@ -136,8 +141,8 @@ bool hdg_valid = false;
 uint8_t sats = 0;
 
 //ICO internal storage
-uint32_t dist_l = 0; //In Meters*3600
-uint8_t dist_h = 0; //In KMs
+int32_t dist_l = 0; //In Meters*3600
+
 
 bool ready_to_go = false;
 int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
@@ -146,8 +151,8 @@ int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
 int i_speed = -1; //-1 -> xxxxx
 int i_hdg = -1; //0-359
 int i_sats = -1; //-1 -> ~20
-uint16_t i_dist_l = 0;//Odometer distance, low, i.e. 1645 = 16km 450m
-uint8_t  i_dist_h = 0;//Odometer distance, high (0-99km) //Not needed!
+int8_t i_dist_l = 0;//Odometer distance, low, i.e. 1645 = 16km 450m
+int8_t i_dist_h = 0;//Odometer distance, high (0-99km) //Not needed!
 char display_buf[8];
 
 byte greeting[] = {digitG, digitP, digitS, digitO, digitD};
@@ -224,21 +229,18 @@ static void processOdometer()
   //ToDo: Odometer calculation
   //Note: dual mode odometer (.xx and .x)
   //??? If speed>0 and hdg_valid ???
-  if ((hdg_valid == true)&&(speed > c_vMin)) {//to check and reconsider!
-    dist_l += speed; //@1 Hz, divide by X hz if needed!
-    if (dist_l > 3600*1000*100) {//TODO: This does NOT WORK. Not sure where the extra 100 comes from!!!
-      dist_l -= 3600*1000*100;
+  //if ((hdg_valid == true)&&(speed > c_vMin)) {//to check and reconsider!
+    dist_l += speed; //@1 Hz, would be 5x more if 5Hz
+    if (dist_l > c_odoMax) {//We sum Meters Per Hour up to 100kms. 100km -> 100*1000m = 100*1000*3600m/3600sec
+      dist_l -= c_odoMax ;
     }
 
-    //i_dist_l would be 1668 here = 16km 680m
-    i_dist_l = dist_l / 3600 / c_odoGrade / c_odoHz; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
-    //This works
-    if (i_dist_l >= c_odoLimit) {
-      i_dist_l -= c_odoLimit;
-    }
-    i_dist_h = i_dist_l / 100;
-    i_dist_l = i_dist_l % 100;
-  }
+    uint32_t li_dist_l = dist_l / c_dist_divider; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
+
+    //i_dist_l and i_dist_h here would be 16 and 68 here -> 16km 680m
+    i_dist_h = li_dist_l / 100UL;
+    i_dist_l = li_dist_l % 100UL;
+    
 }
 
 //-----------
@@ -291,11 +293,15 @@ static void processButtons()
     }
     if (pin1 == true) {
       pin1 = false;
-      dist_l -= 3600 * c_odoGrade ;
+      dist_l -= 3600UL * c_odoGrade ;
+      if (dist_l < 0)
+        dist_l = 0;
     }
     if (pin2 == true) {
       pin2 = false;
-      dist_l += 3600 * c_odoGrade ;
+      dist_l += 3600UL * c_odoGrade ;
+      if (dist_l > c_odoMax)
+        dist_l -= c_odoMax;
     }
 }
 
@@ -344,12 +350,12 @@ static void displayData()
 {
   byte indic = 0;
   if (display_mode == 0)
-    sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);
-  if (display_mode == 1)
+    sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
+  else if (display_mode == 1)
     sprintf(display_buf,"S %3d",i_speed);
-  if (display_mode == 2)
+  else if (display_mode == 2)
     sprintf(display_buf,"H %3d",i_hdg);
-  if (display_mode == 3)
+  else if (display_mode == 3)
     sprintf(display_buf,"G  %02d",i_sats);
 
   if (i_sats == -1)
@@ -384,21 +390,21 @@ static void displayData()
   DEBUG_PORT.print( i_hdg );
   DEBUG_PORT.print( F(" valid: ") );
   DEBUG_PORT.print( fix.valid.heading );
-  DEBUG_PORT.print( F(" Odo High: ") );
-  DEBUG_PORT.print( dist_h );
-  DEBUG_PORT.print( F(".") );
+  DEBUG_PORT.print( F(" Odo: ") );
   DEBUG_PORT.print( dist_l );
   DEBUG_PORT.print( F(" Display: ") );
   DEBUG_PORT.print( display_buf );  
-  //DEBUG_PORT.print( F(".") );
-  //DEBUG_PORT.print( i_dist_l );
+  DEBUG_PORT.print( F(" HL: ") );
+  DEBUG_PORT.print( i_dist_h );
+  DEBUG_PORT.print( F(".") );
+  DEBUG_PORT.println( i_dist_l );
   DEBUG_PORT.print( F(" Sats: ") );
   DEBUG_PORT.print( i_sats );
   DEBUG_PORT.print( F(" valid: ") );
   DEBUG_PORT.print( fix.valid.satellites );
 
-  //DEBUG_PORT.print( F(" display: ") );
-  //DEBUG_PORT.print( display_mode );
+  DEBUG_PORT.print( F(" display: ") );
+  DEBUG_PORT.print( display_mode );
   DEBUG_PORT.print( F(" Ready: ") );
   DEBUG_PORT.println(ready_to_go);
 
@@ -414,7 +420,7 @@ static void displayData()
 static void GPSloop()
 {
   readButtons();
-  while (gps.available( gpsPort )) {
+  while (gps.available( gpsPort )) { //The code inside is executed at GPS Rate (c_odoHz)
     fix = gps.read();
     getGPSData();
     processData();
