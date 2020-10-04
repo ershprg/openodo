@@ -306,13 +306,13 @@ static void processButtons()
     }
     if (pin1_short == true) {
       pin1_short = false;
-      dist_l -= 3600UL * c_odoGrade ;
+      dist_l -= c_dist_divider ;
       if (dist_l < 0)
         dist_l = 0;
     }
     if (pin2_short == true) {
       pin2_short = false;
-      dist_l += 3600UL * c_odoGrade ;
+      dist_l += c_dist_divider ;
       if (dist_l > c_odoMax)
         dist_l -= c_odoMax;
     }
