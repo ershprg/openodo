@@ -119,7 +119,7 @@ const int16_t c_odoLimit = 1000*10; //100.00
 //Odometer Grade 10 or 100 meters
 const int8_t c_odoGrade = 10;
 //We read the Odometer at 1Hz
-const int8_t c_odoHz = 1;
+const int8_t c_odoHz = 5;
 //==========================================================
 //Convert meters per hour every 1 second to km/meters with required precision
 const uint32_t c_dist_divider = (3600UL * c_odoGrade * c_odoHz);
@@ -159,6 +159,7 @@ int8_t i_dist_h = 0;//Odometer distance, high (0-99km) //Not needed!
 char display_buf[8];
 
 byte greeting[] = {digitG, digitP, digitS, digitO, digitD};
+byte sw_version[] = {digitR, digitE, digitL, digit0, digit1};
 
 void sendUBX( const unsigned char *progmemBytes, size_t len )
 {
@@ -204,6 +205,9 @@ static void initDisplay()
 static void greetDisplay()
 {
   display.showDigits(greeting, 0, 5);
+  display.update();
+  delay(500);
+  display.showDigits(sw_version, 0, 5);
   display.update();
   delay(500);
   display.clear();
@@ -362,9 +366,14 @@ static void displayData()
     sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
   else if (display_mode == 1)
     sprintf(display_buf,"S %3d",i_speed);
-  else if (display_mode == 2)
-    sprintf(display_buf,"H %3d",i_hdg);
-  else if (display_mode == 3)
+  else if (display_mode == 2) {
+    char hv;
+    if (hdg_valid == false)
+      hv = '-';
+    else
+      hv = ' ';
+    sprintf(display_buf,"H%c%3d",hv,i_hdg);
+  } else if (display_mode == 3)
     sprintf(display_buf,"G  %02d",i_sats);
 
   if (i_sats == -1)
@@ -391,6 +400,7 @@ static void displayData()
   DEBUG_PORT.print(pin2);
   DEBUG_PORT.print(F(" LAST "));
   DEBUG_PORT.print(lastDebounceTime);*/
+  /*
   DEBUG_PORT.print( F("Speed (Km/H): ") );
   DEBUG_PORT.print( i_speed );
   DEBUG_PORT.print( F(" valid: ") );
@@ -406,7 +416,7 @@ static void displayData()
   DEBUG_PORT.print( F(" HL: ") );
   DEBUG_PORT.print( i_dist_h );
   DEBUG_PORT.print( F(".") );
-  DEBUG_PORT.println( i_dist_l );
+  DEBUG_PORT.print( i_dist_l );
   DEBUG_PORT.print( F(" Sats: ") );
   DEBUG_PORT.print( i_sats );
   DEBUG_PORT.print( F(" valid: ") );
@@ -415,7 +425,7 @@ static void displayData()
   DEBUG_PORT.print( F(" display: ") );
   DEBUG_PORT.print( display_mode );
   DEBUG_PORT.print( F(" Ready: ") );
-  DEBUG_PORT.println(ready_to_go);
+  DEBUG_PORT.println(ready_to_go);*/
 
   //Visual Debug //WTF????
   if (ready_to_go == false) 
@@ -494,18 +504,18 @@ void setup()
   
   gpsPort.attachInterrupt( GPSisr );
   
-  //SwitchTo 57600
+  //SwitchTo 115200
   gpsPort.begin( 9600 );
-  sendUBX( ubxRate1Hz, sizeof(ubxRate1Hz) );
+  sendUBX( ubxRate5Hz, sizeof(ubxRate5Hz) );
   
     //SwitchTo 5Hz DOES NOT WORK!!!!
-  gps.send_P( &gpsPort , F("PUBX,41,1,3,3,57600,0"));
+  gps.send_P( &gpsPort , F("PUBX,41,1,3,3,115200,0"));
   gpsPort.flush();
   gpsPort.end();
 
-  gpsPort.begin( 57600 );
+  gpsPort.begin( 115200 );
   
-  DEBUG_PORT.print( F("Switched to 57600\n") );       
+  DEBUG_PORT.print( F("Switched to 115200\n") );       
 
   greetDisplay();
 
