@@ -128,10 +128,13 @@ const uint32_t c_dist_divider = (3600UL * c_odoGrade * c_odoHz);
 const uint32_t c_odoMax = (3600UL*1000*100*c_odoHz);
 
 //Pin Data
-volatile bool pin1 = false;
-volatile bool pin2 = false;
-volatile long lastDebounceTime = 0;
-long debounceDelay = 1500;
+volatile bool pin1_short = false;
+volatile bool pin1_long = false;
+volatile bool pin2_short = false;
+volatile bool pin2_long = false;
+volatile long lastDebounceTime_pin1 = 0;
+volatile long lastDebounceTime_pin2 = 0;
+long debounceDelay = 125;
 
 
 //GPS Data after reading
@@ -274,31 +277,37 @@ static void readButtons()
   //Reading the Buttons
   
   bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
-  if (z == false)
-    pin1 = true;
+  if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
+    lastDebounceTime_pin1 = millis();
+    if (z == false)
+      pin1_short = true;
+  }
   z = FastGPIO::Pin<bt2Pin>::isInputHigh();
-  if (z == false)
-    pin2 = true;
+  if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
+    lastDebounceTime_pin2 = millis();
+    if (z == false)
+      pin2_short = true;
+  }
 }
 
 static void processButtons()
 {
-    if ((pin1 == true)&&(pin2 == true)) {
+    if ((pin1_short == true)&&(pin2_short == true)) {
       display_mode++;
       if (display_mode > 3)
         display_mode = 0;
-      pin1 = false;
-      pin2 = false;
+      pin1_short = false;
+      pin2_short = false;
       return;
     }
-    if (pin1 == true) {
-      pin1 = false;
+    if (pin1_short == true) {
+      pin1_short = false;
       dist_l -= 3600UL * c_odoGrade ;
       if (dist_l < 0)
         dist_l = 0;
     }
-    if (pin2 == true) {
-      pin2 = false;
+    if (pin2_short == true) {
+      pin2_short = false;
       dist_l += 3600UL * c_odoGrade ;
       if (dist_l > c_odoMax)
         dist_l -= c_odoMax;
