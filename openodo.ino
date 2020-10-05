@@ -1,3 +1,6 @@
+//PinChangeInterrupt
+#include <PinChangeInterrupt.h>
+
 //GPIO Library
 #include <FastGPIO.h>
 
@@ -253,21 +256,25 @@ static void processOdometer()
 //-----------
 // Buttons processing SHOULD be done with an interrupt - however the debounce with ICO controller is terrible: button1 is 4.75v and button2 is 0.85v that triggers them BOTH. Need a resistor.
 //-----------
-/*
+
 void key1Interrupt() {
-  if ( (millis() - lastDebounceTime) > debounceDelay) {  
-    pin1 = true;
-    lastDebounceTime = millis();
-  }    
+  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
+  if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
+    lastDebounceTime_pin1 = millis();
+    if (z == false)
+      pin1_short = true;
+  }
 }
 
 void key2Interrupt() {
-  if ( (millis() - lastDebounceTime) > debounceDelay) {
-    pin2 = true;
-    lastDebounceTime = millis();
+  bool z = FastGPIO::Pin<bt2Pin>::isInputHigh();
+  if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
+    lastDebounceTime_pin2 = millis();
+    if (z == false)
+      pin2_short = true;
   }
 }
-*/
+
 
 //Interrupt for GPS
 static void GPSisr( uint8_t c )
@@ -280,7 +287,7 @@ static void readButtons()
 {
   //Reading the Buttons
   
-  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
+/*  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
   if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
     lastDebounceTime_pin1 = millis();
     if (z == false)
@@ -291,7 +298,7 @@ static void readButtons()
     lastDebounceTime_pin2 = millis();
     if (z == false)
       pin2_short = true;
-  }
+  }*/
 }
 
 static void processButtons()
@@ -523,8 +530,8 @@ void setup()
   FastGPIO::Pin<bt1Pin>::setInputPulledUp();
   FastGPIO::Pin<bt2Pin>::setInputPulledUp();
 
-  //attachInterrupt(digitalPinToInterrupt(bt1Pin), key1Interrupt, FALLING);
-  //attachInterrupt(digitalPinToInterrupt(bt2Pin), key2Interrupt, FALLING);
+  attachPCINT(digitalPinToPCINT(bt1Pin), key1Interrupt, FALLING);
+  attachPCINT(digitalPinToPCINT(bt2Pin), key2Interrupt, FALLING);
   
   //No Fix -> Blink LED fast
   while (gps.available( gpsPort ) == false) {//Still show something while waiting
