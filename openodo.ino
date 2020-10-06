@@ -2,7 +2,7 @@
 #include <PinChangeInterrupt.h>
 
 //GPIO Library
-#include <FastGPIO.h>
+//#include <FastGPIO.h>
 
 //Display library
 #include <LEDDisplayDriver.h>
@@ -132,13 +132,14 @@ const uint32_t c_odoMax = (3600UL*1000*100*c_odoHz);
 
 //Pin Data
 volatile bool pin1_short = false;
-volatile bool pin1_long = false;
+volatile uint8_t pin1_long = 0; //0, 1 is waiting for long, 2 is Pressed
 volatile bool pin2_short = false;
-volatile bool pin2_long = false;
+volatile uint8_t pin2_long = 0; //0, 1 is waiting for long, 2 is Pressed
 volatile long lastDebounceTime_pin1 = 0;
 volatile long lastDebounceTime_pin2 = 0;
 long debounceDelay = 125;
-
+long debounceDelay_up = 75;
+long longPressDelay = 500;
 
 //GPS Data after reading
 uint32_t speed = 0;
@@ -152,6 +153,7 @@ int32_t dist_l = 0; //In Meters*3600
 
 bool ready_to_go = false;
 int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
+int menu_mode = 0;
 
 //Displayed values
 int i_speed = -1; //-1 -> xxxxx
@@ -254,27 +256,40 @@ static void processOdometer()
 }
 
 //-----------
-// Buttons processing SHOULD be done with an interrupt - however the debounce with ICO controller is terrible: button1 is 4.75v and button2 is 0.85v that triggers them BOTH. Need a resistor.
+// Buttons processing SHOULD be done with an interrupt - however the debounce with ICO controller is terrible: button1 is 4.75v and button2 is 0.85v that triggers them BOTH. Working with interrupt on Analog ports saves the day.
 //-----------
 
 void key1Interrupt() {
-  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
-  if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
-    lastDebounceTime_pin1 = millis();
-    if (z == false)
+  uint8_t trigger = getPinChangeInterruptTrigger(digitalPinToPCINT(bt1Pin));
+  if(trigger == FALLING){
+    if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
+      lastDebounceTime_pin1 = millis();
       pin1_short = true;
-  }
+      if (pin1_long == 0)
+        pin1_long = 1; //Holding
+    }
+  } else if(trigger == RISING) {
+    if ( (millis() - lastDebounceTime_pin1) > debounceDelay_up) {
+      pin1_long = 0;
+    }
+  } 
 }
 
 void key2Interrupt() {
-  bool z = FastGPIO::Pin<bt2Pin>::isInputHigh();
-  if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
-    lastDebounceTime_pin2 = millis();
-    if (z == false)
+  uint8_t trigger = getPinChangeInterruptTrigger(digitalPinToPCINT(bt2Pin));
+  if (trigger == FALLING) {
+    if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
+      lastDebounceTime_pin2 = millis();
       pin2_short = true;
-  }
+      if (pin2_long == 0)      
+        pin2_long = 1; //Holding
+    }
+  } else if(trigger == RISING) {
+    if ( (millis() - lastDebounceTime_pin2) > debounceDelay_up) {
+      pin2_long = 0;
+    }
+  }  
 }
-
 
 //Interrupt for GPS
 static void GPSisr( uint8_t c )
@@ -283,26 +298,23 @@ static void GPSisr( uint8_t c )
 
 } // GPSisr
 
-static void readButtons()
+static void checkLongPress()
 {
-  //Reading the Buttons
-  
-/*  bool z = FastGPIO::Pin<bt1Pin>::isInputHigh();
-  if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
-    lastDebounceTime_pin1 = millis();
-    if (z == false)
-      pin1_short = true;
+  if (pin1_long == 1) {
+    if ( (millis() - lastDebounceTime_pin1) > longPressDelay)    
+      pin1_long = 2;
   }
-  z = FastGPIO::Pin<bt2Pin>::isInputHigh();
-  if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
-    lastDebounceTime_pin2 = millis();
-    if (z == false)
-      pin2_short = true;
-  }*/
+
+  if (pin2_long == 1) {
+    if ( (millis() - lastDebounceTime_pin2) > longPressDelay)    
+      pin2_long = 2;
+  }
 }
 
 static void processButtons()
 {
+
+    //BOTH SHORT
     if ((pin1_short == true)&&(pin2_short == true)) {
       display_mode++;
       if (display_mode > 3)
@@ -311,20 +323,53 @@ static void processButtons()
       pin2_short = false;
       return;
     }
+
+    //SHORT PRESS
     if (pin1_short == true) {
       pin1_short = false;
-      dist_l -= c_dist_divider ;
-      if (dist_l < 0)
-        dist_l = 0;
-    }
-    if (pin2_short == true) {
-      pin2_short = false;
       dist_l += c_dist_divider ;
       if (dist_l > c_odoMax)
         dist_l -= c_odoMax;
     }
+    if (pin2_short == true) {
+      pin2_short = false;
+      dist_l -= c_dist_divider ;
+      if (dist_l < 0)
+        dist_l = 0;
+    }
+
 }
 
+//This moved here, so runs at 1-5Hz
+static void processLongButtons() {
+
+    //LONG PRESS BOTH
+    if ((pin1_long == 2)&&(pin2_long == 2)) {
+      pin1_long = 0;
+      pin2_long = 0;
+      if (menu_mode == 0)
+        menu_mode = 1;
+      else
+        menu_mode = 0;
+      return;
+    }
+  
+    //LONG PRESS
+    if (pin1_long == 2) {
+      dist_l += c_dist_divider ;
+      if (dist_l > c_odoMax) {
+        dist_l -= c_odoMax;
+        pin1_long = 0;
+      }
+    }
+    if (pin2_long == 2) {
+      dist_l -= c_dist_divider ;
+      if (dist_l < 0) {
+        dist_l = 0;
+        pin2_long = 0;
+      }
+    }    
+}
 
 //----------------------------------------------------------------
 //  This function gets called about once per second, during the GPS
@@ -369,6 +414,15 @@ static void getGPSData()
 static void displayData()
 {
   byte indic = 0;
+
+  if (menu_mode == 1) {
+    sprintf(display_buf,"SETUP");
+    display.showIndicators(0);
+    display.showText(display_buf);
+    display.update();
+    return;    
+  }
+  
   if (display_mode == 0)
     sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
   else if (display_mode == 1)
@@ -400,13 +454,16 @@ static void displayData()
   //ToDo: display depending on the Mode (HDG, SPD, ODO, DBG)
   display.showText(display_buf);
   display.update();
-/*
-  DEBUG_PORT.print(F("P1 "));
-  DEBUG_PORT.print(pin1);
+
+
+/*  DEBUG_PORT.print(F("P1 "));
+  DEBUG_PORT.print(pin1_long);
   DEBUG_PORT.print(F(" P2 "));
-  DEBUG_PORT.print(pin2);
+  DEBUG_PORT.print(pin2_long);
   DEBUG_PORT.print(F(" LAST "));
-  DEBUG_PORT.print(lastDebounceTime);*/
+  DEBUG_PORT.print(lastDebounceTime_pin1);
+  DEBUG_PORT.print(F(" "));
+  DEBUG_PORT.println(lastDebounceTime_pin2);*/
   /*
   DEBUG_PORT.print( F("Speed (Km/H): ") );
   DEBUG_PORT.print( i_speed );
@@ -432,32 +489,34 @@ static void displayData()
   DEBUG_PORT.print( F(" display: ") );
   DEBUG_PORT.print( display_mode );
   DEBUG_PORT.print( F(" Ready: ") );
-  DEBUG_PORT.println(ready_to_go);*/
+  DEBUG_PORT.println(ready_to_go);
 
   //Visual Debug //WTF????
   if (ready_to_go == false) 
     FastGPIO::Pin<ledPin>::setOutputValueHigh();
   else
-    FastGPIO::Pin<ledPin>::setOutputValueLow();
+    FastGPIO::Pin<ledPin>::setOutputValueLow();*/
 }
 //------------------------------------
 //  This is the main GPS parsing loop.
 
 static void GPSloop()
 {
-  readButtons();
   while (gps.available( gpsPort )) { //The code inside is executed at GPS Rate (c_odoHz)
     fix = gps.read();
     getGPSData();
     processData();
     processOdometer();
+    processLongButtons();
   }
   if (gps.overrun()) {
     gps.overrun( false );
     DEBUG_PORT.println( F("DATA OVERRUN: took too long to print GPS data!") );
   }
+    checkLongPress();
     processButtons();
     displayData();
+      
 
 } // GPSloop
 
@@ -527,15 +586,17 @@ void setup()
   greetDisplay();
 
    //Init Button Pins
-  FastGPIO::Pin<bt1Pin>::setInputPulledUp();
-  FastGPIO::Pin<bt2Pin>::setInputPulledUp();
+  //FastGPIO::Pin<bt1Pin>::setInputPulledUp();
+  //FastGPIO::Pin<bt2Pin>::setInputPulledUp();
+  pinMode(bt1Pin,INPUT_PULLUP);
+  pinMode(bt2Pin,INPUT_PULLUP);
 
-  attachPCINT(digitalPinToPCINT(bt1Pin), key1Interrupt, FALLING);
-  attachPCINT(digitalPinToPCINT(bt2Pin), key2Interrupt, FALLING);
-  
+  attachPCINT(digitalPinToPCINT(bt1Pin), key1Interrupt, CHANGE);
+  attachPCINT(digitalPinToPCINT(bt2Pin), key2Interrupt, CHANGE);
+
   //No Fix -> Blink LED fast
   while (gps.available( gpsPort ) == false) {//Still show something while waiting
-    readButtons();
+    checkLongPress();
     processButtons();
     displayData();
   }
