@@ -109,6 +109,8 @@ const unsigned char ubxRate5Hz[] PROGMEM =
 const unsigned char ubxRate10Hz[] PROGMEM =
   { 0x06,0x08,0x06,0x00,100,0x00,0x01,0x00,0x01,0x00 };
 
+
+
 //==========================================================
 // Define the pins used for the display connection
 //Pin for internal LED
@@ -416,11 +418,8 @@ static void displayData()
   byte indic = 0;
 
   if (menu_mode == 1) {
-    sprintf(display_buf,"SETUP");
-    display.showIndicators(0);
-    display.showText(display_buf);
-    display.update();
-    return;    
+    menu_mode = 0;
+    return;
   }
   
   if (display_mode == 0)
@@ -522,6 +521,21 @@ static void GPSloop()
 
 //--------------------------
 
+
+void powerOffOn() {
+   sprintf(display_buf,"  OFF");
+   display.showIndicators(0);
+   display.showText(display_buf);
+   display.update();
+   delay(3000);
+  ////save odometer to EEPROM
+   sprintf(display_buf,"   ON");
+   display.showIndicators(0);
+   display.showText(display_buf);
+   display.update();
+   delay(500);
+}
+
 void setup()
 {
 
@@ -572,9 +586,20 @@ void setup()
   
   //SwitchTo 115200
   gpsPort.begin( 9600 );
-  sendUBX( ubxRate5Hz, sizeof(ubxRate5Hz) );
+
+  //Disable not needed GPS Sentences
+  gps.send_P(&gpsPort , F("PUBX,40,GSV,0,0,0,0,0,0") );
+  delay( 250 );
+  gps.send_P(&gpsPort , F("PUBX,40,GST,0,0,0,0,0,0") );
+  delay( 250 );
+  gps.send_P(&gpsPort , F("PUBX,40,ZDA,0,0,0,0,0,0"));
+  delay( 250 );
+  gps.send_P( &gpsPort , F("PUBX,40,VTG,0,0,0,0,0,0"));
+  delay( 250 );
   
-    //SwitchTo 5Hz DOES NOT WORK!!!!
+  //Go 5Hz
+  sendUBX( ubxRate5Hz, sizeof(ubxRate5Hz) );
+  delay( 250 );
   gps.send_P( &gpsPort , F("PUBX,41,1,3,3,115200,0"));
   gpsPort.flush();
   gpsPort.end();
@@ -586,8 +611,6 @@ void setup()
   greetDisplay();
 
    //Init Button Pins
-  //FastGPIO::Pin<bt1Pin>::setInputPulledUp();
-  //FastGPIO::Pin<bt2Pin>::setInputPulledUp();
   pinMode(bt1Pin,INPUT_PULLUP);
   pinMode(bt2Pin,INPUT_PULLUP);
 
