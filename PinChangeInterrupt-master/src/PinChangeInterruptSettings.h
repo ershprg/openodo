@@ -48,6 +48,8 @@ That is done by the macros. */
 
 #define PCINT_ENABLE_PCINT8
 #define PCINT_ENABLE_PCINT9
+#define PCINT_ENABLE_PCINT18
+#define PCINT_ENABLE_PCINT19
 
 #endif
 

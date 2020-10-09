@@ -2,7 +2,7 @@
 #include <PinChangeInterrupt.h>
 
 //GPIO Library
-//#include <FastGPIO.h>
+#include <FastGPIO.h>
 
 //Display library
 #include <LEDDisplayDriver.h>
@@ -115,8 +115,10 @@ const unsigned char ubxRate10Hz[] PROGMEM =
 // Define the pins used for the display connection
 //Pin for internal LED
 const int ledPin = 13;
-const int bt1Pin = A0;//D2
-const int bt2Pin = A1;//D3
+const int bt1Pin = A0;
+const int bt2Pin = A1;
+const int pwrPin = 2;
+
 //Minimal Speed to detect
 const int16_t c_vMin = 3*1000; //Meters per hour
 //Odometer limit 
@@ -139,9 +141,12 @@ volatile bool pin2_short = false;
 volatile uint8_t pin2_long = 0; //0, 1 is waiting for long, 2 is Pressed
 volatile long lastDebounceTime_pin1 = 0;
 volatile long lastDebounceTime_pin2 = 0;
-long debounceDelay = 125;
-long debounceDelay_up = 75;
-long longPressDelay = 500;
+volatile long lastDebounceTime_pwr = 0;
+
+long debounceDelay = 100;
+long debounceDelay_up = 50;
+long longPressDelay = 750;
+long debounceDelay_pwr = 1000;
 
 //GPS Data after reading
 uint32_t speed = 0;
@@ -155,6 +160,7 @@ int32_t dist_l = 0; //In Meters*3600
 
 bool ready_to_go = false;
 int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
+volatile int power_mode = 0; //0 = external, 1 = battery
 int menu_mode = 0;
 
 //Displayed values
@@ -257,6 +263,23 @@ static void processOdometer()
     
 }
 
+void pwrInterrupt() {
+ bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
+  if (inputHigh  == false) {
+    if ( (millis() - lastDebounceTime_pwr) > debounceDelay_pwr) {
+      lastDebounceTime_pwr = millis();
+      power_mode = 1; //Fall to Battery
+     //PWR OUT
+    }
+  } else if(inputHigh  == true) {
+    if ( (millis() - lastDebounceTime_pwr) > debounceDelay_pwr) {
+      lastDebounceTime_pwr = millis();
+      //PWR IN
+      power_mode = 0; //External current
+    }
+  } 
+}
+
 //-----------
 // Buttons processing SHOULD be done with an interrupt - however the debounce with ICO controller is terrible: button1 is 4.75v and button2 is 0.85v that triggers them BOTH. Working with interrupt on Analog ports saves the day.
 //-----------
@@ -266,13 +289,17 @@ void key1Interrupt() {
   if(trigger == FALLING){
     if ( (millis() - lastDebounceTime_pin1) > debounceDelay) {
       lastDebounceTime_pin1 = millis();
-      pin1_short = true;
       if (pin1_long == 0)
         pin1_long = 1; //Holding
     }
   } else if(trigger == RISING) {
     if ( (millis() - lastDebounceTime_pin1) > debounceDelay_up) {
-      pin1_long = 0;
+      if (pin1_long == 2)      
+        pin1_long = 3; //Released after long hold
+      else {
+        pin1_short = true;
+        pin1_long = 0;
+      }
     }
   } 
 }
@@ -282,13 +309,17 @@ void key2Interrupt() {
   if (trigger == FALLING) {
     if ( (millis() - lastDebounceTime_pin2) > debounceDelay) {
       lastDebounceTime_pin2 = millis();
-      pin2_short = true;
       if (pin2_long == 0)      
         pin2_long = 1; //Holding
     }
   } else if(trigger == RISING) {
     if ( (millis() - lastDebounceTime_pin2) > debounceDelay_up) {
-      pin2_long = 0;
+      if (pin2_long == 2)
+        pin2_long = 3; //Released after hold
+      else {
+        pin2_short = true;
+        pin2_long = 0;
+      }
     }
   }  
 }
@@ -345,32 +376,44 @@ static void processButtons()
 //This moved here, so runs at 1-5Hz
 static void processLongButtons() {
 
-    //LONG PRESS BOTH
+    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
     if ((pin1_long == 2)&&(pin2_long == 2)) {
-      pin1_long = 0;
-      pin2_long = 0;
       if (menu_mode == 0)
         menu_mode = 1;
-      else
-        menu_mode = 0;
+      return;
+    }
+
+    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
+    if ((pin1_long == 3)&&(pin2_long == 3)) {
+      pin1_long = 0;
+      pin2_long = 0;
+      if (menu_mode == 1)
+        menu_mode = 2;
       return;
     }
   
     //LONG PRESS
     if (pin1_long == 2) {
-      dist_l += c_dist_divider ;
+      dist_l += 3*c_dist_divider ;
       if (dist_l > c_odoMax) {
         dist_l -= c_odoMax;
         pin1_long = 0;
       }
     }
+
+    if (pin1_long == 3)
+      pin1_long = 0;
+      
     if (pin2_long == 2) {
-      dist_l -= c_dist_divider ;
+      dist_l -= 3*c_dist_divider ;
       if (dist_l < 0) {
         dist_l = 0;
         pin2_long = 0;
       }
-    }    
+    }
+
+    if (pin2_long == 3)
+      pin2_long = 0;
 }
 
 //----------------------------------------------------------------
@@ -417,9 +460,26 @@ static void displayData()
 {
   byte indic = 0;
 
-  if (menu_mode == 1) {
-    menu_mode = 0;
+  if (power_mode == 1) {
+    sprintf(display_buf,"BATT ");
+    display.showText(display_buf);
+    display.update();
     return;
+  }
+
+  if (menu_mode == 1) {//Long press -> display reset
+        if (display_mode == 0) {
+          sprintf(display_buf,"ODO 0");
+          display.showText(display_buf);
+          display.update();
+          return;
+        }
+  } else
+  if (menu_mode == 2) {
+    if (display_mode == 0) {
+      dist_l = 0;
+    }
+    menu_mode = 0;
   }
   
   if (display_mode == 0)
@@ -611,11 +671,14 @@ void setup()
   greetDisplay();
 
    //Init Button Pins
-  pinMode(bt1Pin,INPUT_PULLUP);
-  pinMode(bt2Pin,INPUT_PULLUP);
+  FastGPIO::Pin<bt1Pin>::setInputPulledUp();
+  FastGPIO::Pin<bt2Pin>::setInputPulledUp();
+  FastGPIO::Pin<pwrPin>::setInput(); 
 
+  attachPCINT(digitalPinToPCINT(pwrPin), pwrInterrupt, CHANGE);
   attachPCINT(digitalPinToPCINT(bt1Pin), key1Interrupt, CHANGE);
   attachPCINT(digitalPinToPCINT(bt2Pin), key2Interrupt, CHANGE);
+ 
 
   //No Fix -> Blink LED fast
   while (gps.available( gpsPort ) == false) {//Still show something while waiting
