@@ -120,7 +120,7 @@ const int bt2Pin = A1;
 const int pwrPin = 2;
 
 //Minimal Speed to detect
-const int16_t c_vMin = 5L*1000*3; // = 5x GPS Reported Speed (Meters per hour)
+const int16_t c_vMin = 5L*1000*5; // = 5x GPS Reported Speed (Meters per hour)
 //Odometer limit 
 const int16_t c_odoLimit = 1000*10; //100.00
 //Odometer Grade 10 or 100 meters
@@ -251,17 +251,20 @@ static void processData()
 static void processOdometer()
 {
 
-  if (last5speeds > c_vMin) {
+  if (last5speeds > c_vMin) { //1 last second of movement
     stopped = false;
+    //dist_l += last5speeds * 4;//1 more below //WONT WORK
+  } else if (last25speeds < c_vMin * 5UL) //5 last seconds in PAUSE
+      stopped = true;
+
+  if (stopped == false) {
     dist_l += speed; //@1 Hz, would be 5x more if 5Hz
     if (dist_l > c_odoMax) {//We sum Meters Per Hour up to 100kms. 100km -> 100*1000m = 100*1000*3600m/3600sec
       dist_l -= c_odoMax ;
     }
   }
 
-    if (last25speeds < c_vMin * 5UL)
-      stopped = true;
-      
+
     uint32_t li_dist_l = dist_l / c_dist_divider; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
 
     //i_dist_l and i_dist_h here would be 16 and 68 here -> 16km 680m
