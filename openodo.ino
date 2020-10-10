@@ -120,7 +120,7 @@ const int bt2Pin = A1;
 const int pwrPin = 2;
 
 //Minimal Speed to detect
-const int16_t c_vMin = 3*1000; //Meters per hour
+const int16_t c_vMin = 5L*1000*3; // = 5x GPS Reported Speed (Meters per hour)
 //Odometer limit 
 const int16_t c_odoLimit = 1000*10; //100.00
 //Odometer Grade 10 or 100 meters
@@ -154,6 +154,9 @@ uint16_t hdg = 0;
 bool hdg_valid = false;
 uint8_t sats = 0;
 
+uint32_t last5speeds = 0; //Sum of last 5 speeds
+uint32_t last25speeds = 0; //Sum of last 25 speeds
+bool stopped = true;
 //ICO internal storage
 int32_t dist_l = 0; //In Meters*3600
 
@@ -238,6 +241,8 @@ static void processData()
     i_hdg = hdg / 100; //NanoGPS gives in 100s fractions 
     
   i_speed = speed / 1000; //NanoGPS gives in meters per hour 
+  last5speeds = (4UL * last5speeds / 5UL) + speed;
+  last25speeds = (24UL * last25speeds / 25UL) + speed;
 }
 
 //-----------
@@ -245,16 +250,18 @@ static void processData()
 //-----------
 static void processOdometer()
 {
-  //i_speed = display_mode * 100;hdg_valid = true;speed = display_mode * 100000;//TEST ACCEL
-  //ToDo: Odometer calculation
-  //Note: dual mode odometer (.xx and .x)
-  //??? If speed>0 and hdg_valid ???
-  //if ((hdg_valid == true)&&(speed > c_vMin)) {//to check and reconsider!
+
+  if (last5speeds > c_vMin) {
+    stopped = false;
     dist_l += speed; //@1 Hz, would be 5x more if 5Hz
     if (dist_l > c_odoMax) {//We sum Meters Per Hour up to 100kms. 100km -> 100*1000m = 100*1000*3600m/3600sec
       dist_l -= c_odoMax ;
     }
+  }
 
+    if (last25speeds < c_vMin * 5UL)
+      stopped = true;
+      
     uint32_t li_dist_l = dist_l / c_dist_divider; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
 
     //i_dist_l and i_dist_h here would be 16 and 68 here -> 16km 680m
@@ -483,7 +490,10 @@ static void displayData()
   }
   
   if (display_mode == 0)
-    sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
+    if (stopped == true)
+      sprintf(display_buf,"-%2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
+    else
+      sprintf(display_buf," %2d%02d", i_dist_h, i_dist_l);//Was not working with unit32_t 
   else if (display_mode == 1)
     sprintf(display_buf,"S %3d",i_speed);
   else if (display_mode == 2) {
@@ -514,7 +524,10 @@ static void displayData()
   display.showText(display_buf);
   display.update();
 
-
+/*DEBUG_PORT.print(F("AVG "));
+DEBUG_PORT.print(last5speeds);
+DEBUG_PORT.print(F(" 25 "));
+DEBUG_PORT.println(last25speeds);*/
 /*  DEBUG_PORT.print(F("P1 "));
   DEBUG_PORT.print(pin1_long);
   DEBUG_PORT.print(F(" P2 "));
