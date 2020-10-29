@@ -163,7 +163,7 @@ int32_t dist_l = 0; //In Meters*3600
 
 bool ready_to_go = false;
 int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
-volatile int power_mode = 0; //0 = external, 1 = battery
+volatile int power_mode = 0; //0 = external, 1 = battery, 2 = back on from the battery
 int menu_mode = 0;
 
 //Displayed values
@@ -285,7 +285,10 @@ void pwrInterrupt() {
     if ( (millis() - lastDebounceTime_pwr) > debounceDelay_pwr) {
       lastDebounceTime_pwr = millis();
       //PWR IN
-      power_mode = 0; //External current
+      if (power_mode == 1)
+        power_mode = 2; //Just switching ON
+      else
+        power_mode = 0; //External current
     }
   } 
 }
@@ -466,14 +469,24 @@ static void getGPSData()
     
 } // getGPSData()
 
+void(* resetFunc) (void) = 0; //declare reset function @ address 0
+
 static void displayData()
 {
   byte indic = 0;
 
   if (power_mode == 1) {
-    sprintf(display_buf,"BATT ");
+    //Do Nothing so far
+  }
+
+  if (power_mode == 2) {
+    display.begin();
+    initDisplay();
+    sprintf(display_buf,"POW ");
     display.showText(display_buf);
     display.update();
+    initGPS();
+    power_mode = 0;
     return;
   }
 
@@ -484,10 +497,19 @@ static void displayData()
           display.update();
           return;
         }
+        if (display_mode == 3) {
+          sprintf(display_buf,"RESET");
+          display.showText(display_buf);
+          display.update();
+          return;
+        }
   } else
   if (menu_mode == 2) {
     if (display_mode == 0) {
       dist_l = 0;
+    }
+    if (display_mode == 3) {//Reset
+      resetFunc();
     }
     menu_mode = 0;
   }
@@ -612,52 +634,7 @@ void powerOffOn() {
    delay(500);
 }
 
-void setup()
-{
-
-  initDisplay();
-  
-  DEBUG_PORT.begin(9600);
-  while (!DEBUG_PORT)
-    ;
-
-  DEBUG_PORT.print( F("NMEA.INO: started\n") );
-  DEBUG_PORT.print( F("  fix object size = ") );
-  DEBUG_PORT.println( sizeof(gps.fix()) );
-  DEBUG_PORT.print( F("  gps object size = ") );
-  DEBUG_PORT.println( sizeof(gps) );
-  DEBUG_PORT.println( F("Looking for GPS device on " GPS_PORT_NAME) );
-
-  #ifndef NMEAGPS_RECOGNIZE_ALL
-    #error You must define NMEAGPS_RECOGNIZE_ALL in NMEAGPS_cfg.h!
-  #endif
-
-  #if !defined( NMEAGPS_PARSE_GGA ) & !defined( NMEAGPS_PARSE_GLL ) & \
-      !defined( NMEAGPS_PARSE_GSA ) & !defined( NMEAGPS_PARSE_GSV ) & \
-      !defined( NMEAGPS_PARSE_RMC ) & !defined( NMEAGPS_PARSE_VTG ) & \
-      !defined( NMEAGPS_PARSE_ZDA ) & !defined( NMEAGPS_PARSE_GST )
-
-    DEBUG_PORT.println( F("\nWARNING: No NMEA sentences are enabled: no fix data will be displayed.") );
-
-  #else
-    if (gps.merging == NMEAGPS::NO_MERGING) {
-      DEBUG_PORT.print  ( F("\nWARNING: displaying data from ") );
-      DEBUG_PORT.print  ( gps.string_for( LAST_SENTENCE_IN_INTERVAL ) );
-      DEBUG_PORT.print  ( F(" sentences ONLY, and only if ") );
-      DEBUG_PORT.print  ( gps.string_for( LAST_SENTENCE_IN_INTERVAL ) );
-      DEBUG_PORT.println( F(" is enabled.\n"
-                            "  Other sentences may be parsed, but their data will not be displayed.") );
-    }
-  #endif
-
-  DEBUG_PORT.print  ( F("\nGPS quiet time is assumed to begin after a ") );
-  DEBUG_PORT.print  ( gps.string_for( LAST_SENTENCE_IN_INTERVAL ) );
-  DEBUG_PORT.println( F(" sentence is received.\n"
-                        "  You should confirm this with NMEAorder.ino\n") );
-
-  trace_header( DEBUG_PORT );
-  DEBUG_PORT.flush();
-  
+void initGPS() {
   gpsPort.attachInterrupt( GPSisr );
   
   //SwitchTo 115200
@@ -682,6 +659,29 @@ void setup()
 
   gpsPort.begin( 115200 );
   
+}
+
+void setup()
+{
+
+  initDisplay();
+  
+  DEBUG_PORT.begin(9600);
+  while (!DEBUG_PORT)
+    ;
+
+  DEBUG_PORT.print( F("OpenODO: started\n") );
+  DEBUG_PORT.print( F("  fix object size = ") );
+  DEBUG_PORT.println( sizeof(gps.fix()) );
+  DEBUG_PORT.print( F("  gps object size = ") );
+  DEBUG_PORT.println( sizeof(gps) );
+  DEBUG_PORT.println( F("Looking for GPS device on " GPS_PORT_NAME) );
+
+  
+  trace_header( DEBUG_PORT );
+  DEBUG_PORT.flush();
+  
+  initGPS();
   DEBUG_PORT.print( F("Switched to 115200\n") );       
 
   greetDisplay();
@@ -690,6 +690,11 @@ void setup()
   FastGPIO::Pin<bt1Pin>::setInputPulledUp();
   FastGPIO::Pin<bt2Pin>::setInputPulledUp();
   FastGPIO::Pin<pwrPin>::setInput(); 
+
+  bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
+  if (inputHigh == false) { //Battery Start
+    power_mode = 1;
+  }
 
   attachPCINT(digitalPinToPCINT(pwrPin), pwrInterrupt, CHANGE);
   attachPCINT(digitalPinToPCINT(bt1Pin), key1Interrupt, CHANGE);
