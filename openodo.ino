@@ -299,6 +299,8 @@ static void updateOdometer()
     i_dist_l = li_dist_l % 100UL;
   
 }
+
+
 void pwrInterrupt() {
  bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
   if (inputHigh  == false) {
@@ -408,51 +410,6 @@ static void processButtons()
     }
 
 }
-/*
-//This moved here, so runs at 1-5Hz
-static void processLongButtonsHertz() {
-
-    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
-    if ((pin1_long == 2)&&(pin2_long == 2)) {
-      if (menu_mode == 0)
-        menu_mode = 1;
-      return;
-    }
-
-    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
-    if ((pin1_long == 3)&&(pin2_long == 3)) {
-      pin1_long = 0;
-      pin2_long = 0;
-      if (menu_mode == 1)
-        menu_mode = 2;
-      return;
-    }
-  
-    //LONG PRESS
-    if (pin1_long == 2) {
-      dist_l += 3*c_dist_divider ;
-      if (dist_l > c_odoMax) {
-        dist_l -= c_odoMax;
-        pin1_long = 0;
-      }
-    }
-
-    if (pin1_long == 3)
-      pin1_long = 0;
-      
-    if (pin2_long == 2) {
-      dist_l -= 3*c_dist_divider ;
-      //dist_l -= c_dist_divider ;
-      if (dist_l < 0) {
-        dist_l = 0;
-        pin2_long = 0;
-      }
-    }
-
-    if (pin2_long == 3)
-      pin2_long = 0;
-}*/
-
 //This does NOT run at 1-5Hz
 static void processLongButtons() {
 
@@ -600,6 +557,7 @@ static void powerOff() {
 
 static void powerStates() {
 
+  //This is to add to the Interrupt processing! Bouncing, etc
   bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
   if (inputHigh == false) { //Battery Start -> Shut Down
     power_state = BAT_ON;
