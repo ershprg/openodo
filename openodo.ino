@@ -1,3 +1,7 @@
+//Power
+#include <avr/wdt.h>
+#include <avr/sleep.h>
+
 //PinChangeInterrupt
 #include <PinChangeInterrupt.h>
 
@@ -109,7 +113,16 @@ const unsigned char ubxRate5Hz[] PROGMEM =
 const unsigned char ubxRate10Hz[] PROGMEM =
   { 0x06,0x08,0x06,0x00,100,0x00,0x01,0x00,0x01,0x00 };
 
+//Power State (Actual Condition)
+#define BAT_ON 1 //On battery
+#define IGN_ON 0 //On 12v
 
+// Power Mode
+#define ON_PWR 0 //Is On
+#define OFF_PWR 1 //Is Off
+#define BATT_PWR 2 //Is On on Battery (1 -> 2)
+#define SW_ON_PWR 3 //Turning On (1,2) -> 2 -> 0
+#define SH_DOWN_PWR 4 //Turning Off (0,2) -> 3 -> 1
 
 //==========================================================
 // Define the pins used for the display connection
@@ -130,6 +143,9 @@ const int8_t c_odoHz = 5;
 //==========================================================
 //Convert meters per hour every 1 second to km/meters with required precision
 const uint32_t c_dist_divider = (3600UL * c_odoGrade * c_odoHz);
+
+//For Odometer rolling (buton pressed)
+const uint32_t c_dist_divider_slower = (36UL * c_odoGrade * c_odoHz);
 
 //Maximum reachable odometer is 100km
 const uint32_t c_odoMax = (3600UL*1000*100*c_odoHz);
@@ -163,7 +179,8 @@ int32_t dist_l = 0; //In Meters*3600
 
 bool ready_to_go = false;
 int display_mode = 0; //What is displayed: Speed, Hdg, ODO...
-volatile int power_mode = 0; //0 = external, 1 = battery, 2 = back on from the battery
+volatile int power_state = IGN_ON; //Power STATE as detected by the Interrupt; 1 = battery, 0 = online
+volatile int power_mode = ON_PWR; //Power MODE as the device needs 
 int menu_mode = 0;
 
 //Displayed values
@@ -265,30 +282,36 @@ static void processOdometer()
   }
 
 
+/*    uint32_t li_dist_l = dist_l / c_dist_divider; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
+
+    //i_dist_l and i_dist_h here would be 16 and 68 here -> 16km 680m
+    i_dist_h = li_dist_l / 100UL;
+    i_dist_l = li_dist_l % 100UL;
+    */
+}
+
+static void updateOdometer()
+{
     uint32_t li_dist_l = dist_l / c_dist_divider; //Divide by 3600 (hour -> second) and by X (dist in 10s or 100s of meters)
 
     //i_dist_l and i_dist_h here would be 16 and 68 here -> 16km 680m
     i_dist_h = li_dist_l / 100UL;
     i_dist_l = li_dist_l % 100UL;
-    
+  
 }
-
 void pwrInterrupt() {
  bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
   if (inputHigh  == false) {
     if ( (millis() - lastDebounceTime_pwr) > debounceDelay_pwr) {
       lastDebounceTime_pwr = millis();
-      power_mode = 1; //Fall to Battery
+      power_state = BAT_ON; //Fall to Battery
      //PWR OUT
     }
   } else if(inputHigh  == true) {
     if ( (millis() - lastDebounceTime_pwr) > debounceDelay_pwr) {
       lastDebounceTime_pwr = millis();
       //PWR IN
-      if (power_mode == 1)
-        power_mode = 2; //Just switching ON
-      else
-        power_mode = 0; //External current
+        power_state = IGN_ON; //Just switching ON
     }
   } 
 }
@@ -385,9 +408,9 @@ static void processButtons()
     }
 
 }
-
+/*
 //This moved here, so runs at 1-5Hz
-static void processLongButtons() {
+static void processLongButtonsHertz() {
 
     //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
     if ((pin1_long == 2)&&(pin2_long == 2)) {
@@ -419,6 +442,50 @@ static void processLongButtons() {
       
     if (pin2_long == 2) {
       dist_l -= 3*c_dist_divider ;
+      //dist_l -= c_dist_divider ;
+      if (dist_l < 0) {
+        dist_l = 0;
+        pin2_long = 0;
+      }
+    }
+
+    if (pin2_long == 3)
+      pin2_long = 0;
+}*/
+
+//This does NOT run at 1-5Hz
+static void processLongButtons() {
+
+    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
+    if ((pin1_long == 2)&&(pin2_long == 2)) {
+      if (menu_mode == 0)
+        menu_mode = 1;
+      return;
+    }
+
+    //LONG PRESS BOTH - WORKS ONLY ON RELEASE!
+    if ((pin1_long == 3)&&(pin2_long == 3)) {
+      pin1_long = 0;
+      pin2_long = 0;
+      if (menu_mode == 1)
+        menu_mode = 2;
+      return;
+    }
+  
+    //LONG PRESS
+    if (pin1_long == 2) {
+      dist_l += c_dist_divider_slower ;
+      if (dist_l > c_odoMax) {
+        dist_l -= c_odoMax;
+        pin1_long = 0;
+      }
+    }
+
+    if (pin1_long == 3)
+      pin1_long = 0;
+      
+    if (pin2_long == 2) {
+      dist_l -= c_dist_divider_slower ;
       if (dist_l < 0) {
         dist_l = 0;
         pin2_long = 0;
@@ -428,6 +495,7 @@ static void processLongButtons() {
     if (pin2_long == 3)
       pin2_long = 0;
 }
+
 
 //----------------------------------------------------------------
 //  This function gets called about once per second, during the GPS
@@ -471,24 +539,138 @@ static void getGPSData()
 
 void(* resetFunc) (void) = 0; //declare reset function @ address 0
 
+static void initGPS() {
+  gpsPort.attachInterrupt( GPSisr );
+  
+  //SwitchTo 115200
+  gpsPort.begin( 9600 );
+
+  //Disable not needed GPS Sentences
+  gps.send_P(&gpsPort , F("PUBX,40,GSV,0,0,0,0,0,0") );
+  delay( 250 );
+  gps.send_P(&gpsPort , F("PUBX,40,GST,0,0,0,0,0,0") );
+  delay( 250 );
+  gps.send_P(&gpsPort , F("PUBX,40,ZDA,0,0,0,0,0,0"));
+  delay( 250 );
+  gps.send_P( &gpsPort , F("PUBX,40,VTG,0,0,0,0,0,0"));
+  delay( 250 );
+  
+  //Go 5Hz
+  sendUBX( ubxRate5Hz, sizeof(ubxRate5Hz) );
+  delay( 250 );
+  gps.send_P( &gpsPort , F("PUBX,41,1,3,3,115200,0"));
+  gpsPort.flush();
+  gpsPort.end();
+
+  gpsPort.begin( 115200 );
+  
+}
+
+
+
+static void powerOn() {
+    display.begin();
+    initDisplay();
+  
+    sprintf(display_buf,"   ON");
+    display.showText(display_buf);
+    display.update();
+    initGPS();// Already has the delays
+}
+
+static void powerOff() {
+   display.showIndicators(0);
+   display.clear();
+   display.update();
+   
+  sprintf(display_buf,"  OFF");
+  display.showText(display_buf);
+  display.update();
+
+  //It will take interrupts here          
+  sleep_enable();
+  sleep_bod_disable();
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_cpu();
+
+  //Wake Up
+  sleep_disable();
+}
+
+
+static void powerStates() {
+
+  bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
+  if (inputHigh == false) { //Battery Start -> Shut Down
+    power_state = BAT_ON;
+  } else {
+    power_state = IGN_ON;
+  }
+
+
+//Power Actual Condition
+//BAT_ON 1 //On battery
+//IGN_ON 0 //On 12v
+
+// Power Mode
+//ON_PWR 0 //Is On
+//OFF_PWR 1 //Is Off
+//BATT_PWR 2 //Is On on Battery (1 -> 2)
+//SW_ON_PWR 3 //Turning On (1,2) -> 2 -> 0
+//SH_DOWN_PWR 4 //Turning Off (0,2) -> 3 -> 1
+
+  if (power_mode == ON_PWR) {
+    if (power_state == BAT_ON) {
+      power_mode = SH_DOWN_PWR;
+    }
+    if (power_state == IGN_ON) //Optimization
+      return;
+  } else
+  if (power_mode == OFF_PWR) {
+    if (power_state == IGN_ON) {
+      power_mode = SW_ON_PWR;
+    } else if (power_state == BAT_ON) {//Was sleeping but ended here
+      if ((pin1_long > 0)||(pin2_long > 0)) { //Middle button 
+        power_mode = BATT_PWR;
+      } else {
+        power_mode = SH_DOWN_PWR;
+      }
+    }
+  } else
+  if (power_mode == BATT_PWR) {
+    if (power_state == IGN_ON) {
+      power_mode = SW_ON_PWR;
+    }
+    if (power_state == BAT_ON) {
+      //PASS    
+    }
+  } else
+  if (power_mode == SH_DOWN_PWR) {
+    if (power_state == IGN_ON) {
+      power_mode = ON_PWR; //No shutdown with ignition
+    }
+    if (power_state == BAT_ON) {
+      power_mode = OFF_PWR;
+      pin1_short = false;//Reset keys
+      pin2_short = false;
+      powerOff();
+    }
+  } else
+  if (power_mode == SW_ON_PWR) {
+    if (power_state == BAT_ON) {
+      power_mode = BATT_PWR;
+    }
+    if (power_state == IGN_ON) {
+      power_mode = ON_PWR;
+      powerOn();
+    }
+  }
+  
+}
+
 static void displayData()
 {
   byte indic = 0;
-
-  if (power_mode == 1) {
-    //Do Nothing so far
-  }
-
-  if (power_mode == 2) {
-    display.begin();
-    initDisplay();
-    sprintf(display_buf,"POW ");
-    display.showText(display_buf);
-    display.update();
-    initGPS();
-    power_mode = 0;
-    return;
-  }
 
   if (menu_mode == 1) {//Long press -> display reset
         if (display_mode == 0) {
@@ -503,6 +685,13 @@ static void displayData()
           display.update();
           return;
         }
+        if (display_mode == 2) {
+          //DEBUG_PORT.print( F("User Off REQ!\n") );   
+          sprintf(display_buf,"  OFF");
+          display.showText(display_buf);
+          display.update();
+          return;
+        }
   } else
   if (menu_mode == 2) {
     if (display_mode == 0) {
@@ -510,6 +699,9 @@ static void displayData()
     }
     if (display_mode == 3) {//Reset
       resetFunc();
+    }
+    if (display_mode == 2) {//Off
+        power_mode = SH_DOWN_PWR;//Requested to Turn Power Off
     }
     menu_mode = 0;
   }
@@ -549,44 +741,52 @@ static void displayData()
   display.showText(display_buf);
   display.update();
 
-/*DEBUG_PORT.print(F("AVG "));
-DEBUG_PORT.print(last5speeds);
-DEBUG_PORT.print(F(" 25 "));
-DEBUG_PORT.println(last25speeds);*/
-/*  DEBUG_PORT.print(F("P1 "));
-  DEBUG_PORT.print(pin1_long);
-  DEBUG_PORT.print(F(" P2 "));
-  DEBUG_PORT.print(pin2_long);
-  DEBUG_PORT.print(F(" LAST "));
-  DEBUG_PORT.print(lastDebounceTime_pin1);
-  DEBUG_PORT.print(F(" "));
-  DEBUG_PORT.println(lastDebounceTime_pin2);*/
-  /*
-  DEBUG_PORT.print( F("Speed (Km/H): ") );
-  DEBUG_PORT.print( i_speed );
-  DEBUG_PORT.print( F(" valid: ") );
-  DEBUG_PORT.print( fix.valid.speed );
-  DEBUG_PORT.print( F(" Heading (Deg): ") );
-  DEBUG_PORT.print( i_hdg );
-  DEBUG_PORT.print( F(" valid: ") );
-  DEBUG_PORT.print( fix.valid.heading );
-  DEBUG_PORT.print( F(" Odo: ") );
-  DEBUG_PORT.print( dist_l );
-  DEBUG_PORT.print( F(" Display: ") );
-  DEBUG_PORT.print( display_buf );  
-  DEBUG_PORT.print( F(" HL: ") );
-  DEBUG_PORT.print( i_dist_h );
-  DEBUG_PORT.print( F(".") );
-  DEBUG_PORT.print( i_dist_l );
-  DEBUG_PORT.print( F(" Sats: ") );
-  DEBUG_PORT.print( i_sats );
-  DEBUG_PORT.print( F(" valid: ") );
-  DEBUG_PORT.print( fix.valid.satellites );
+/*//DEBUG_PORT.print(F("MM "));
+//DEBUG_PORT.print(menu_mode);
+//DEBUG_PORT.print(F("DM "));
+//DEBUG_PORT.print(display_mode);
+//DEBUG_PORT.print(F("PM "));
+//DEBUG_PORT.println(power_mode);*/
 
-  DEBUG_PORT.print( F(" display: ") );
-  DEBUG_PORT.print( display_mode );
-  DEBUG_PORT.print( F(" Ready: ") );
-  DEBUG_PORT.println(ready_to_go);
+
+/*//DEBUG_PORT.print(F("AVG "));
+//DEBUG_PORT.print(last5speeds);
+//DEBUG_PORT.print(F(" 25 "));
+//DEBUG_PORT.println(last25speeds);*/
+/*  //DEBUG_PORT.print(F("P1 "));
+  //DEBUG_PORT.print(pin1_long);
+  //DEBUG_PORT.print(F(" P2 "));
+  //DEBUG_PORT.print(pin2_long);
+  //DEBUG_PORT.print(F(" LAST "));
+  //DEBUG_PORT.print(lastDebounceTime_pin1);
+  //DEBUG_PORT.print(F(" "));
+  //DEBUG_PORT.println(lastDebounceTime_pin2);*/
+  /*
+  //DEBUG_PORT.print( F("Speed (Km/H): ") );
+  //DEBUG_PORT.print( i_speed );
+  //DEBUG_PORT.print( F(" valid: ") );
+  //DEBUG_PORT.print( fix.valid.speed );
+  //DEBUG_PORT.print( F(" Heading (Deg): ") );
+  //DEBUG_PORT.print( i_hdg );
+  //DEBUG_PORT.print( F(" valid: ") );
+  //DEBUG_PORT.print( fix.valid.heading );
+  //DEBUG_PORT.print( F(" Odo: ") );
+  //DEBUG_PORT.print( dist_l );
+  //DEBUG_PORT.print( F(" Display: ") );
+  //DEBUG_PORT.print( display_buf );  
+  //DEBUG_PORT.print( F(" HL: ") );
+  //DEBUG_PORT.print( i_dist_h );
+  //DEBUG_PORT.print( F(".") );
+  //DEBUG_PORT.print( i_dist_l );
+  //DEBUG_PORT.print( F(" Sats: ") );
+  //DEBUG_PORT.print( i_sats );
+  //DEBUG_PORT.print( F(" valid: ") );
+  //DEBUG_PORT.print( fix.valid.satellites );
+
+  //DEBUG_PORT.print( F(" display: ") );
+  //DEBUG_PORT.print( display_mode );
+  //DEBUG_PORT.print( F(" Ready: ") );
+  //DEBUG_PORT.println(ready_to_go);
 
   //Visual Debug //WTF????
   if (ready_to_go == false) 
@@ -599,70 +799,37 @@ DEBUG_PORT.println(last25speeds);*/
 
 static void GPSloop()
 {
+ 
   while (gps.available( gpsPort )) { //The code inside is executed at GPS Rate (c_odoHz)
     fix = gps.read();
     getGPSData();
     processData();
     processOdometer();
-    processLongButtons();
   }
   if (gps.overrun()) {
     gps.overrun( false );
     DEBUG_PORT.println( F("DATA OVERRUN: took too long to print GPS data!") );
   }
+
+    processLongButtons();
+    updateOdometer();
     checkLongPress();
     processButtons();
+    powerStates();  
     displayData();
-      
 
 } // GPSloop
 
 //--------------------------
 
 
-void powerOffOn() {
-   sprintf(display_buf,"  OFF");
-   display.showIndicators(0);
-   display.showText(display_buf);
-   display.update();
-   delay(3000);
-  ////save odometer to EEPROM
-   sprintf(display_buf,"   ON");
-   display.showIndicators(0);
-   display.showText(display_buf);
-   display.update();
-   delay(500);
-}
-
-void initGPS() {
-  gpsPort.attachInterrupt( GPSisr );
-  
-  //SwitchTo 115200
-  gpsPort.begin( 9600 );
-
-  //Disable not needed GPS Sentences
-  gps.send_P(&gpsPort , F("PUBX,40,GSV,0,0,0,0,0,0") );
-  delay( 250 );
-  gps.send_P(&gpsPort , F("PUBX,40,GST,0,0,0,0,0,0") );
-  delay( 250 );
-  gps.send_P(&gpsPort , F("PUBX,40,ZDA,0,0,0,0,0,0"));
-  delay( 250 );
-  gps.send_P( &gpsPort , F("PUBX,40,VTG,0,0,0,0,0,0"));
-  delay( 250 );
-  
-  //Go 5Hz
-  sendUBX( ubxRate5Hz, sizeof(ubxRate5Hz) );
-  delay( 250 );
-  gps.send_P( &gpsPort , F("PUBX,41,1,3,3,115200,0"));
-  gpsPort.flush();
-  gpsPort.end();
-
-  gpsPort.begin( 115200 );
-  
-}
-
 void setup()
 {
+
+  // Another tweaks to lower the power consumption
+  ADCSRA &= ~(1<<ADEN); //Disable ADC
+  ACSR = (1<<ACD); //Disable the analog comparator
+
 
   initDisplay();
   
@@ -671,11 +838,11 @@ void setup()
     ;
 
   DEBUG_PORT.print( F("OpenODO: started\n") );
-  DEBUG_PORT.print( F("  fix object size = ") );
-  DEBUG_PORT.println( sizeof(gps.fix()) );
-  DEBUG_PORT.print( F("  gps object size = ") );
-  DEBUG_PORT.println( sizeof(gps) );
-  DEBUG_PORT.println( F("Looking for GPS device on " GPS_PORT_NAME) );
+  //DEBUG_PORT.print( F("  fix object size = ") );
+  //DEBUG_PORT.println( sizeof(gps.fix()) );
+  //DEBUG_PORT.print( F("  gps object size = ") );
+  //DEBUG_PORT.println( sizeof(gps) );
+  //DEBUG_PORT.println( F("Looking for GPS device on " GPS_PORT_NAME) );
 
   
   trace_header( DEBUG_PORT );
@@ -692,8 +859,9 @@ void setup()
   FastGPIO::Pin<pwrPin>::setInput(); 
 
   bool inputHigh = FastGPIO::Pin<pwrPin>::isInputHigh();
-  if (inputHigh == false) { //Battery Start
-    power_mode = 1;
+  if (inputHigh == false) { //Battery Start -> Shut Down
+    power_state = BAT_ON;
+    power_mode = SH_DOWN_PWR;
   }
 
   attachPCINT(digitalPinToPCINT(pwrPin), pwrInterrupt, CHANGE);
@@ -701,10 +869,13 @@ void setup()
   attachPCINT(digitalPinToPCINT(bt2Pin), key2Interrupt, CHANGE);
  
 
-  //No Fix -> Blink LED fast
+  //TODO: This loop is blocked if GPS is not connected
   while (gps.available( gpsPort ) == false) {//Still show something while waiting
+    updateOdometer();
+    processLongButtons();
     checkLongPress();
     processButtons();
+    powerStates();
     displayData();
   }
 
